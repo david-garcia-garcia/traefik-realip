@@ -43,8 +43,6 @@ services:
       - "traefik.http.middlewares.realip.plugin.realip.processHeaders[0].depth=-1"
       - "traefik.http.middlewares.realip.plugin.realip.processHeaders[1].headerName=CF-Connecting-IP"
       - "traefik.http.middlewares.realip.plugin.realip.processHeaders[1].depth=-1"
-      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[2].headerName=X-Client-IP"
-      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[2].depth=-1"
       - "traefik.http.middlewares.realip.plugin.realip.forceOverwrite=true"
     networks:
       - traefik-net

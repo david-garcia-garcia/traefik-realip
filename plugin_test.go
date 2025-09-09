@@ -536,7 +536,7 @@ func TestServeHTTP(t *testing.T) {
 		plugin.ServeHTTP(rr, req)
 
 		// Header should not be set at all
-		_, exists := req.Header["X-Real-IP"]
+		_, exists := req.Header[http.CanonicalHeaderKey("X-Real-IP")]
 		if exists {
 			t.Error("expected X-Real-IP header not to be set when forceOverwrite is disabled and no IP found")
 		}

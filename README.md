@@ -9,14 +9,17 @@ A Traefik plugin that extracts the real client IP address from proxy headers and
 
 ## ✨ Features
 
-- **Configurable header processing**: Define which headers to check for IP addresses and in what order
-- **Flexible output**: Set any custom header name for the extracted IP address
-- **Smart IP extraction**: Handles multiple IPs in headers, port numbers, and IPv6 addresses
-- **Header priority**: Processes headers in the configured order, using the first valid IP found
+- **Depth-based IP extraction**: Configure exactly which IP to extract from comma-separated lists
+- **Flexible header configuration**: Define headers with custom depth settings for precise control
+- **Synthetic headers**: Special `clientAddress` header provides direct access to `request.RemoteAddr`
+- **Anti-spoofing protection**: `forceOverwrite` option prevents header injection attacks
+- **Smart IP extraction**: Handles multiple IPs, port numbers, and IPv6 addresses
+- **Header priority**: Processes headers in configured order with fallback support
 - **Port stripping**: Automatically removes port numbers from IP addresses
 - **IPv6 support**: Full support for IPv6 addresses including bracketed notation with ports
 - **Enable/disable control**: Easy on/off switch for the plugin functionality
 - **Robust validation**: Validates IP addresses and handles malformed input gracefully
+- **Access log integration**: Extracted IPs appear in Traefik access logs
 
 ## 📥 Installation
 
@@ -88,10 +91,13 @@ http:
           enabled: true                    # Enable/disable the plugin
           headerName: "X-Real-IP"          # Header to populate with the real IP
           processHeaders:                  # Headers to check for IP addresses (in order)
-            - "X-Forwarded-For"
-            - "CF-Connecting-IP"
-            - "X-Real-IP"
-          clientAddrFallback: false        # Fallback to request.RemoteAddr if no IP found
+            - headerName: "X-Forwarded-For"
+              depth: -1                    # Leftmost IP (original client)
+            - headerName: "CF-Connecting-IP"
+              depth: -1                    # Leftmost IP
+            - headerName: "clientAddress"  # Synthetic header for request.RemoteAddr
+              depth: -1
+          forceOverwrite: true             # Always set header (prevents spoofing)
 ```
 
 ### Configuration Options
@@ -100,8 +106,30 @@ http:
 |--------|------|---------|-------------|
 | `enabled` | boolean | `true` | Enable or disable the plugin |
 | `headerName` | string | `"X-Real-IP"` | Name of the header to populate with the extracted IP |
-| `processHeaders` | array | `["X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP"]` | List of headers to check for IP addresses (processed in order) |
-| `clientAddrFallback` | boolean | `false` | Fallback to request.RemoteAddr if no IP found in configured headers |
+| `processHeaders` | array of objects | See below | List of headers to process with depth configuration |
+| `forceOverwrite` | boolean | `true` | Always set the header, even if empty (prevents header spoofing) |
+
+#### ProcessHeaders Configuration
+
+Each header in `processHeaders` is an object with:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `headerName` | string | required | Name of the header to check for IP addresses |
+| `depth` | integer | `-1` | IP extraction depth: `-1` = leftmost, `0` = rightmost, `1` = second from right, etc. |
+
+**Default processHeaders:**
+```yaml
+processHeaders:
+  - headerName: "X-Forwarded-For"
+    depth: -1
+  - headerName: "X-Real-IP"  
+    depth: -1
+  - headerName: "CF-Connecting-IP"
+    depth: -1
+  - headerName: "clientAddress"  # Synthetic header mapping to request.RemoteAddr
+    depth: -1
+```
 
 ### Example Docker Compose Setup
 
@@ -142,56 +170,112 @@ The plugin processes requests in the following order:
 
 1. **Check if enabled**: If `enabled` is `false`, the plugin passes the request through unchanged
 2. **Process headers in order**: Iterates through the `processHeaders` list in the specified order
-3. **Extract IPs from headers**: For each header:
+3. **Extract IPs from headers**: For each header configuration:
+   - Gets header value (or `req.RemoteAddr` for synthetic `clientAddress` header)
    - Splits comma-separated IP addresses
-   - Processes IPs from left to right (leftmost IP is typically the original client)
    - Cleans each IP (removes whitespace and port numbers)
-   - Validates the IP address format
-4. **Set the result**: Populates the `headerName` header with the first valid IP address found
-5. **Forward the request**: Passes the modified request to the next handler
+   - Validates IP address format
+   - Applies depth logic to select the appropriate IP
+4. **Apply depth logic**: 
+   - `depth: -1` = Leftmost IP (original client)
+   - `depth: 0` = Rightmost IP (last proxy)
+   - `depth: 1` = Second from right, etc.
+   - If depth is out of bounds, skip to next header
+5. **Set the result**: Populates the `headerName` header with the selected IP
+6. **Force overwrite**: If `forceOverwrite` is true, always sets the header (even if empty) to prevent spoofing
+7. **Forward the request**: Passes the modified request to the next handler
+
+### Synthetic Headers
+
+**`clientAddress`** - Special synthetic header that maps directly to `req.RemoteAddr`
+- Provides access to the actual network connection's remote address
+- Useful as a fallback when no proxy headers are available
+- Automatically handles port stripping like other headers
 
 ### Header Processing Examples
 
 #### Single IP Address
-```
-X-Forwarded-For: 203.0.113.1
+```yaml
+Configuration:
+  processHeaders:
+    - headerName: "X-Forwarded-For"
+      depth: -1
+
+Header: X-Forwarded-For: 203.0.113.1
 Result: X-Real-IP: 203.0.113.1
 ```
 
-#### Multiple IP Addresses (comma-separated)
-```
-X-Forwarded-For: 203.0.113.1, 198.51.100.1, 192.168.1.1
-Result: X-Real-IP: 203.0.113.1  (first valid IP)
-```
-
-#### IP Address with Port
-```
-X-Forwarded-For: 203.0.113.1:8080
-Result: X-Real-IP: 203.0.113.1  (port stripped)
-```
-
-#### IPv6 Address
-```
-X-Forwarded-For: 2001:db8::1
-Result: X-Real-IP: 2001:db8::1
-```
-
-#### IPv6 Address with Port
-```
-X-Forwarded-For: [2001:db8::1]:8080
-Result: X-Real-IP: 2001:db8::1  (port stripped)
-```
-
-#### Header Priority
-```
-Headers:
-  X-Forwarded-For: 203.0.113.1
-  CF-Connecting-IP: 198.51.100.1
-
+#### Multiple IP Addresses with Depth Control
+```yaml
 Configuration:
-  processHeaders: ["X-Forwarded-For", "CF-Connecting-IP"]
+  processHeaders:
+    - headerName: "X-Forwarded-For"
+      depth: -1  # Leftmost
 
-Result: X-Real-IP: 203.0.113.1  (X-Forwarded-For processed first)
+Header: X-Forwarded-For: 203.0.113.1, 198.51.100.1, 192.168.1.1
+Result: X-Real-IP: 203.0.113.1  (leftmost IP)
+```
+
+```yaml
+Configuration:
+  processHeaders:
+    - headerName: "X-Forwarded-For"
+      depth: 0   # Rightmost
+
+Header: X-Forwarded-For: 203.0.113.1, 198.51.100.1, 192.168.1.1
+Result: X-Real-IP: 192.168.1.1  (rightmost IP)
+```
+
+```yaml
+Configuration:
+  processHeaders:
+    - headerName: "X-Forwarded-For"
+      depth: 1   # Second from right
+
+Header: X-Forwarded-For: 203.0.113.1, 198.51.100.1, 192.168.1.1
+Result: X-Real-IP: 198.51.100.1  (second from right)
+```
+
+#### Synthetic clientAddress Header
+```yaml
+Configuration:
+  processHeaders:
+    - headerName: "clientAddress"
+      depth: -1
+
+Request: RemoteAddr = "203.0.113.1:8080"
+Result: X-Real-IP: 203.0.113.1  (port stripped from RemoteAddr)
+```
+
+#### Header Priority with Fallback
+```yaml
+Configuration:
+  processHeaders:
+    - headerName: "CF-Connecting-IP"
+      depth: -1
+    - headerName: "clientAddress"
+      depth: -1
+
+Headers:
+  CF-Connecting-IP: 198.51.100.1
+  (no other headers)
+
+Result: X-Real-IP: 198.51.100.1  (CF-Connecting-IP processed first)
+```
+
+#### Force Overwrite (Anti-Spoofing)
+```yaml
+Configuration:
+  forceOverwrite: true
+  processHeaders:
+    - headerName: "X-Forwarded-For"
+      depth: -1
+
+Incoming Request:
+  X-Real-IP: "spoofed-value"  # Malicious header
+  (no X-Forwarded-For header)
+
+Result: X-Real-IP: ""  (spoofed header overwritten with empty value)
 ```
 
 ## 📋 Use Cases
@@ -206,8 +290,11 @@ http:
           enabled: true
           headerName: "X-Real-IP"
           processHeaders:
-            - "CF-Connecting-IP"
-            - "X-Forwarded-For"
+            - headerName: "CF-Connecting-IP"
+              depth: -1              # Leftmost IP (original client)
+            - headerName: "X-Forwarded-For"
+              depth: -1              # Fallback to standard header
+          forceOverwrite: true
 ```
 
 ### Behind AWS Application Load Balancer
@@ -220,7 +307,9 @@ http:
           enabled: true
           headerName: "X-Real-IP"
           processHeaders:
-            - "X-Forwarded-For"
+            - headerName: "X-Forwarded-For"
+              depth: -1              # Leftmost IP (original client)
+          forceOverwrite: true
 ```
 
 ### Behind NGINX Proxy
@@ -233,8 +322,11 @@ http:
           enabled: true
           headerName: "X-Real-IP"
           processHeaders:
-            - "X-Real-IP"
-            - "X-Forwarded-For"
+            - headerName: "X-Real-IP"
+              depth: -1              # NGINX sets this header
+            - headerName: "X-Forwarded-For"
+              depth: -1              # Fallback
+          forceOverwrite: true
 ```
 
 ### Custom Header Name
@@ -247,11 +339,14 @@ http:
           enabled: true
           headerName: "X-Client-IP"  # Custom header name
           processHeaders:
-            - "X-Forwarded-For"
-            - "CF-Connecting-IP"
+            - headerName: "X-Forwarded-For"
+              depth: -1
+            - headerName: "CF-Connecting-IP"
+              depth: -1
+          forceOverwrite: true
 ```
 
-### Multiple Proxy Layers
+### Multiple Proxy Layers with Depth Control
 ```yaml
 http:
   middlewares:
@@ -261,13 +356,16 @@ http:
           enabled: true
           headerName: "X-Real-IP"
           processHeaders:
-            - "X-Forwarded-For"      # Check first (closest to client)
-            - "X-Real-IP"            # Fallback
-            - "CF-Connecting-IP"     # Cloudflare
-            - "X-Client-IP"          # Custom proxy
+            - headerName: "CF-Connecting-IP"
+              depth: -1              # Trust Cloudflare (leftmost)
+            - headerName: "X-Forwarded-For"
+              depth: 1               # Skip first IP, use second from right
+            - headerName: "clientAddress"  # Synthetic header for direct connection
+              depth: -1
+          forceOverwrite: true
 ```
 
-### Client Address Fallback
+### Direct Connection Fallback (Synthetic Header)
 ```yaml
 http:
   middlewares:
@@ -277,9 +375,11 @@ http:
           enabled: true
           headerName: "X-Real-IP"
           processHeaders:
-            - "X-Forwarded-For"
-            - "CF-Connecting-IP"
-          clientAddrFallback: true   # Use request.RemoteAddr if no headers found
+            - headerName: "X-Forwarded-For"
+              depth: -1
+            - headerName: "clientAddress"  # Synthetic: maps to request.RemoteAddr
+              depth: -1
+          forceOverwrite: true
 ```
 
 ### Access Logging Configuration
