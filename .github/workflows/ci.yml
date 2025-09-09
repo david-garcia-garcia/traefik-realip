@@ -105,15 +105,15 @@ jobs:
       if: failure()
       run: |
         echo "=== Traefik logs ==="
-        docker compose logs traefik-realip-test
+        docker compose logs traefik
         echo "=== Whoami logs ==="
-        docker compose logs whoami-test
+        docker compose logs whoami
         echo "=== Whoami Custom logs ==="
-        docker compose logs whoami-custom-test
+        docker compose logs whoami-custom
         echo "=== Whoami Disabled logs ==="
-        docker compose logs whoami-disabled-test
+        docker compose logs whoami-disabled
         echo "=== Whoami Fallback logs ==="
-        docker compose logs whoami-fallback-test
+        docker compose logs whoami-fallback
     - name: Cleanup
       if: always()
       run: docker compose down -v
