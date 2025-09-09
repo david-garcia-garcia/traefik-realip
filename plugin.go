@@ -124,7 +124,7 @@ func (p *Plugin) extractRealIP(req *http.Request) string {
 		var cleanIPs []string
 		for _, ip := range ips {
 			cleanIP := p.cleanIPAddress(ip)
-			if p.isValidIP(cleanIP) {
+			if cleanIP != "" {
 				cleanIPs = append(cleanIPs, cleanIP)
 			}
 		}
@@ -172,9 +172,4 @@ func (p *Plugin) cleanIPAddress(ip string) string {
 
 	// If SplitHostPort fails, it means there's no port, return the original IP
 	return ip
-}
-
-// isValidIP checks if the given string is a valid IP address.
-func (p *Plugin) isValidIP(ip string) bool {
-	return net.ParseIP(ip) != nil
 }

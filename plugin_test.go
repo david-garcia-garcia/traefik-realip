@@ -400,8 +400,8 @@ func TestServeHTTP(t *testing.T) {
 		plugin.ServeHTTP(rr, req)
 
 		realIP := req.Header.Get("X-Real-IP")
-		if realIP != "203.0.113.1" {
-			t.Errorf("expected X-Real-IP to be '203.0.113.1' (first valid IP), but got: '%s'", realIP)
+		if realIP != "invalid-ip" {
+			t.Errorf("expected X-Real-IP to be 'invalid-ip' (first value after cleaning), but got: '%s'", realIP)
 		}
 	})
 
@@ -536,7 +536,7 @@ func TestServeHTTP(t *testing.T) {
 		plugin.ServeHTTP(rr, req)
 
 		// Header should not be set at all
-		_, exists := req.Header["X-Real-IP"]
+		_, exists := req.Header[http.CanonicalHeaderKey("X-Real-IP")]
 		if exists {
 			t.Error("expected X-Real-IP header not to be set when forceOverwrite is disabled and no IP found")
 		}
@@ -746,7 +746,7 @@ func TestServeHTTP(t *testing.T) {
 		plugin.ServeHTTP(rr, req)
 	})
 
-	t.Run("VeryLongIPString", func(t *testing.T) {
+	t.Run("VeryLongString", func(t *testing.T) {
 		cfg := &Config{
 			Enabled:        true,
 			HeaderName:     "X-Real-IP",
@@ -760,7 +760,7 @@ func TestServeHTTP(t *testing.T) {
 		}
 
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		// Very long string that could cause issues
+		// Very long string
 		longString := strings.Repeat("a", 1000)
 		req.Header.Set("X-Forwarded-For", longString)
 
@@ -769,10 +769,10 @@ func TestServeHTTP(t *testing.T) {
 		// This should not panic with very long strings
 		plugin.ServeHTTP(rr, req)
 
-		// Should result in empty header due to invalid IP
+		// Should pass through the long string (no validation)
 		realIP := req.Header.Get("X-Real-IP")
-		if realIP != "" {
-			t.Errorf("expected X-Real-IP to be empty for very long invalid string, but got: '%s'", realIP)
+		if realIP != longString {
+			t.Errorf("expected X-Real-IP to be the long string, but got: '%s'", realIP[:50]+"...")
 		}
 	})
 
@@ -887,11 +887,11 @@ func TestExtractRealIP(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "InvalidIPsSkipped",
+			name: "InvalidIPsNotSkipped",
 			headers: map[string]string{
 				"X-Forwarded-For": "invalid-ip, 203.0.113.1",
 			},
-			expected: "203.0.113.1",
+			expected: "invalid-ip",
 		},
 	}
 
@@ -943,47 +943,6 @@ func TestCleanIPAddress(t *testing.T) {
 			result := p.cleanIPAddress(tt.input)
 			if result != tt.expected {
 				t.Errorf("cleanIPAddress(%q) = %q, expected %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestIsValidIP(t *testing.T) {
-	cfg := &Config{
-		Enabled:        true,
-		HeaderName:     "X-Real-IP",
-		ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
-	}
-
-	plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
-	if err != nil {
-		t.Fatalf("failed to create plugin: %v", err)
-	}
-
-	p := plugin.(*Plugin)
-
-	tests := []struct {
-		input    string
-		expected bool
-	}{
-		{"203.0.113.1", true},
-		{"192.168.1.1", true},
-		{"10.0.0.1", true},
-		{"127.0.0.1", true},
-		{"2001:db8::1", true},
-		{"::1", true},
-		{"invalid-ip", false},
-		{"999.999.999.999", false},
-		{"", false},
-		{"203.0.113", false},
-		{"203.0.113.1.1", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := p.isValidIP(tt.input)
-			if result != tt.expected {
-				t.Errorf("isValidIP(%q) = %v, expected %v", tt.input, result, tt.expected)
 			}
 		})
 	}

@@ -111,7 +111,13 @@ function Get-DockerComposeCommand {
         return "docker-compose"
     }
     catch {
-        return "docker compose"
+        try {
+            docker compose version | Out-Null
+            return "docker compose"
+        }
+        catch {
+            return "docker-compose"  # Fallback to v1 syntax
+        }
     }
 }
 
@@ -130,7 +136,11 @@ try {
     if (-not $SkipWait) {
         # Start services
         Write-Step "Starting Docker Compose services..." "Info"
-        & $dockerComposeCmd.Split() up -d --build
+        if ($dockerComposeCmd -eq "docker compose") {
+            docker compose up -d --build
+        } else {
+            docker-compose up -d --build
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to start Docker Compose services"
         }
@@ -370,7 +380,11 @@ finally {
     if (-not $SkipDockerCleanup) {
         Write-Step "Cleaning up Docker Compose services..." "Info"
         try {
-            & $dockerComposeCmd.Split() down
+            if ($dockerComposeCmd -eq "docker compose") {
+                docker compose down
+            } else {
+                docker-compose down
+            }
         }
         catch {
             Write-Step "Warning: Failed to clean up Docker services: $($_.Exception.Message)" "Warning"
