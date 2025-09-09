@@ -161,7 +161,11 @@ services:
       - "traefik.http.routers.app.middlewares=realip"
       - "traefik.http.middlewares.realip.plugin.realip.enabled=true"
       - "traefik.http.middlewares.realip.plugin.realip.headerName=X-Real-IP"
-      - "traefik.http.middlewares.realip.plugin.realip.processHeaders=X-Forwarded-For,CF-Connecting-IP"
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[0].headerName=X-Forwarded-For"
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[0].depth=-1"
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[1].headerName=CF-Connecting-IP" 
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[1].depth=-1"
+      - "traefik.http.middlewares.realip.plugin.realip.forceOverwrite=true"
 ```
 
 ## 🔄 How It Works
