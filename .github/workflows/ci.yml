@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches:
+    - main
+    - master
+  pull_request:
+    branches:
+    - main
+    - master
+
+permissions: { }
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+    - name: Setup Go
+      uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5
+      with:
+        go-version: "1.21"
+    - name: Checkout Repository
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v6
+      with:
+        version: latest
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+    - name: Setup Go
+      uses: actions/setup-go@cdcb36043654635271a94b9a6d1392de5bb323a7 # v5
+      with:
+        go-version: "1.21"
+    - name: Run Tests
+      run: go test -v ./...
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    - name: Install PowerShell
+      run: |
+        # Set non-interactive mode to avoid prompts
+        export DEBIAN_FRONTEND=noninteractive
+        
+        sudo apt-get update
+        sudo apt-get install -y wget apt-transport-https software-properties-common
+        
+        # Download and install Microsoft signing key and repository
+        wget -q "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
+        
+        # Use dpkg with force-confdef and force-confold to handle config conflicts automatically
+        sudo dpkg --force-confdef --force-confold -i packages-microsoft-prod.deb
+        
+        sudo apt-get update
+        sudo apt-get install -y powershell
+    - name: Start services
+      run: docker compose up -d
+    - name: Wait for services to be ready
+      shell: pwsh
+      run: |
+        Write-Host "Waiting for Traefik to be ready..."
+        $timeout = 60
+        $elapsed = 0
+        do {
+          try {
+            $response = Invoke-WebRequest -Uri "http://localhost:8080/api/rawdata" -Method Get -TimeoutSec 5
+            if ($response.StatusCode -eq 200) { break }
+          } catch { }
+          Start-Sleep 2
+          $elapsed += 2
+        } while ($elapsed -lt $timeout)
+        
+        Write-Host "Waiting for whoami service to be ready..."
+        $elapsed = 0
+        do {
+          try {
+            $response = Invoke-WebRequest -Uri "http://localhost/" -Method Get -TimeoutSec 5
+            if ($response.StatusCode -eq 200) { break }
+          } catch { }
+          Start-Sleep 2
+          $elapsed += 2
+        } while ($elapsed -lt $timeout)
+    - name: Run integration tests
+      shell: pwsh
+      run: ./Test-Integration.ps1
+    - name: Show logs on failure
+      if: failure()
+      run: |
+        echo "=== Traefik logs ==="
+        docker compose logs traefik-realip-test
+        echo "=== Whoami logs ==="
+        docker compose logs whoami-test
+        echo "=== Whoami Custom logs ==="
+        docker compose logs whoami-custom-test
+        echo "=== Whoami Disabled logs ==="
+        docker compose logs whoami-disabled-test
+        echo "=== Whoami Fallback logs ==="
+        docker compose logs whoami-fallback-test
+    - name: Cleanup
+      if: always()
+      run: docker compose down -v

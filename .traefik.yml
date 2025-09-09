@@ -1,0 +1,13 @@
+displayName: realip
+type: middleware
+import: github.com/david-garcia-garcia/traefik-realip
+summary: traefik plugin to extract and set real client IP address from proxy headers
+testData:
+  enabled: true
+  headerName: "X-Real-IP"
+  processHeaders:
+    - headerName: "X-Forwarded-For"
+      depth: -1
+    - headerName: "CF-Connecting-IP"
+      depth: -1
+  forceOverwrite: true

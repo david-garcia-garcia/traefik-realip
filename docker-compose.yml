@@ -1,0 +1,106 @@
+
+services:
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik-realip-test
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --log.level=DEBUG
+      - --experimental.localPlugins.realip.moduleName=github.com/david-garcia-garcia/traefik-realip
+      - --accesslog=true
+      - --accesslog.filepath=/var/log/traefik/access.log
+      - --accesslog.format=json
+      - --accesslog.fields.names.StartUTC=drop
+      - --accesslog.fields.headers.names.X-Real-IP=keep
+      - --accesslog.fields.headers.names.X-Client-IP=keep
+      - --accesslog.fields.headers.names.CF-Connecting-IP=keep
+      - --accesslog.fields.headers.names.X-Forwarded-For=keep
+    ports:
+      - "8080:8080"  # Traefik dashboard
+      - "80:80"      # HTTP
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - .:/plugins-local/src/github.com/david-garcia-garcia/traefik-realip:ro
+      - ./logs:/var/log/traefik
+    networks:
+      - traefik-net
+
+  # Test service that echoes headers
+  whoami:
+    image: traefik/whoami
+    container_name: whoami-test
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami.rule=Host(`localhost`)"
+      - "traefik.http.routers.whoami.entrypoints=web"
+      - "traefik.http.routers.whoami.middlewares=realip"
+      - "traefik.http.middlewares.realip.plugin.realip.enabled=true"
+      - "traefik.http.middlewares.realip.plugin.realip.headerName=X-Real-IP"
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[0].headerName=X-Forwarded-For"
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[0].depth=-1"
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[1].headerName=CF-Connecting-IP"
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[1].depth=-1"
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[2].headerName=X-Client-IP"
+      - "traefik.http.middlewares.realip.plugin.realip.processHeaders[2].depth=-1"
+      - "traefik.http.middlewares.realip.plugin.realip.forceOverwrite=true"
+    networks:
+      - traefik-net
+
+  # Test service with custom header name
+  whoami-custom:
+    image: traefik/whoami
+    container_name: whoami-custom-test
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami-custom.rule=Host(`custom.localhost`)"
+      - "traefik.http.routers.whoami-custom.entrypoints=web"
+      - "traefik.http.routers.whoami-custom.middlewares=realip-custom"
+      - "traefik.http.middlewares.realip-custom.plugin.realip.enabled=true"
+      - "traefik.http.middlewares.realip-custom.plugin.realip.headerName=X-Client-IP"
+      - "traefik.http.middlewares.realip-custom.plugin.realip.processHeaders[0].headerName=X-Forwarded-For"
+      - "traefik.http.middlewares.realip-custom.plugin.realip.processHeaders[0].depth=-1"
+      - "traefik.http.middlewares.realip-custom.plugin.realip.processHeaders[1].headerName=CF-Connecting-IP"
+      - "traefik.http.middlewares.realip-custom.plugin.realip.processHeaders[1].depth=-1"
+    networks:
+      - traefik-net
+
+  # Test service with disabled plugin
+  whoami-disabled:
+    image: traefik/whoami
+    container_name: whoami-disabled-test
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami-disabled.rule=Host(`disabled.localhost`)"
+      - "traefik.http.routers.whoami-disabled.entrypoints=web"
+      - "traefik.http.routers.whoami-disabled.middlewares=realip-disabled"
+      - "traefik.http.middlewares.realip-disabled.plugin.realip.enabled=false"
+      - "traefik.http.middlewares.realip-disabled.plugin.realip.headerName=X-Real-IP"
+      - "traefik.http.middlewares.realip-disabled.plugin.realip.processHeaders[0].headerName=X-Forwarded-For"
+      - "traefik.http.middlewares.realip-disabled.plugin.realip.processHeaders[0].depth=-1"
+      - "traefik.http.middlewares.realip-disabled.plugin.realip.forceOverwrite=false"
+    networks:
+      - traefik-net
+
+  # Test service with clientAddrFallback enabled
+  whoami-fallback:
+    image: traefik/whoami
+    container_name: whoami-fallback-test
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami-fallback.rule=Host(`fallback.localhost`)"
+      - "traefik.http.routers.whoami-fallback.entrypoints=web"
+      - "traefik.http.routers.whoami-fallback.middlewares=realip-fallback"
+      - "traefik.http.middlewares.realip-fallback.plugin.realip.enabled=true"
+      - "traefik.http.middlewares.realip-fallback.plugin.realip.headerName=X-Real-IP"
+      - "traefik.http.middlewares.realip-fallback.plugin.realip.processHeaders[0].headerName=clientAddress"
+      - "traefik.http.middlewares.realip-fallback.plugin.realip.processHeaders[0].depth=-1"
+      - "traefik.http.middlewares.realip-fallback.plugin.realip.forceOverwrite=true"
+    networks:
+      - traefik-net
+
+networks:
+  traefik-net:
+    driver: bridge
