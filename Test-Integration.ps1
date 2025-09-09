@@ -240,20 +240,40 @@ try {
         $testResults += @{ Test = "Header Priority"; Status = "FAILED" }
     }
     
-    # Test 5: Custom header name - Skip this test as it requires DNS resolution
+    # Test 5: Custom header name
     try {
-        Write-Step "Test 5: Custom header name (X-Client-IP) - SKIPPED (DNS resolution required)" "Warning"
-        $testResults += @{ Test = "Custom Header Name"; Status = "SKIPPED" }
+        Write-Step "Test 5: Custom header name (X-Client-IP)" "Info"
+        $response = Invoke-WebRequest -Uri "http://localhost/custom" -Headers @{
+            "CF-Connecting-IP" = "203.0.113.1"
+        } -TimeoutSec 10
+        if ($response.Content -match "X-Client-Ip: 203.0.113.1") {
+            Write-Step "✓ Test 5 PASSED: Custom header name works" "Success"
+            $testResults += @{ Test = "Custom Header Name"; Status = "PASSED" }
+        } else {
+            Write-Step "✗ Test 5 FAILED: Custom header name not working" "Error"
+            Write-Host "Response content: $($response.Content)" -ForegroundColor Yellow
+            $testResults += @{ Test = "Custom Header Name"; Status = "FAILED" }
+        }
     }
     catch {
         Write-Step "✗ Test 5 FAILED: $($_.Exception.Message)" "Error"
         $testResults += @{ Test = "Custom Header Name"; Status = "FAILED" }
     }
     
-    # Test 6: Disabled plugin - Skip this test as it requires DNS resolution
+    # Test 6: Disabled plugin
     try {
-        Write-Step "Test 6: Disabled plugin should not modify headers - SKIPPED (DNS resolution required)" "Warning"
-        $testResults += @{ Test = "Disabled Plugin"; Status = "SKIPPED" }
+        Write-Step "Test 6: Disabled plugin should not modify headers" "Info"
+        $response = Invoke-WebRequest -Uri "http://localhost/disabled" -Headers @{
+            "X-Forwarded-For" = "203.0.113.1"
+        } -TimeoutSec 10
+        if ($response.Content -notmatch "X-Real-Ip: 203.0.113.1") {
+            Write-Step "✓ Test 6 PASSED: Disabled plugin doesn't modify headers" "Success"
+            $testResults += @{ Test = "Disabled Plugin"; Status = "PASSED" }
+        } else {
+            Write-Step "✗ Test 6 FAILED: Disabled plugin still modifying headers" "Error"
+            Write-Host "Response content: $($response.Content)" -ForegroundColor Yellow
+            $testResults += @{ Test = "Disabled Plugin"; Status = "FAILED" }
+        }
     }
     catch {
         Write-Step "✗ Test 6 FAILED: $($_.Exception.Message)" "Error"
@@ -335,14 +355,23 @@ try {
         $testResults += @{ Test = "Access Log"; Status = "FAILED" }
     }
     
-    # Test 10: ClientAddrFallback functionality - Skip this test as it requires DNS resolution
+    # Test 10: ClientAddress synthetic header (fallback functionality)
     try {
-        Write-Step "Test 10: ClientAddrFallback functionality - SKIPPED (DNS resolution required)" "Warning"
-        $testResults += @{ Test = "ClientAddrFallback"; Status = "SKIPPED" }
+        Write-Step "Test 10: ClientAddress synthetic header functionality" "Info"
+        $response = Invoke-WebRequest -Uri "http://localhost/fallback" -TimeoutSec 10
+        # This service is configured to use only clientAddress synthetic header
+        if ($response.Content -match "X-Real-Ip: ") {
+            Write-Step "✓ Test 10 PASSED: ClientAddress synthetic header works" "Success"
+            $testResults += @{ Test = "ClientAddress Synthetic"; Status = "PASSED" }
+        } else {
+            Write-Step "✗ Test 10 FAILED: ClientAddress synthetic header not working" "Error"
+            Write-Host "Response content: $($response.Content)" -ForegroundColor Yellow
+            $testResults += @{ Test = "ClientAddress Synthetic"; Status = "FAILED" }
+        }
     }
     catch {
         Write-Step "✗ Test 10 FAILED: $($_.Exception.Message)" "Error"
-        $testResults += @{ Test = "ClientAddrFallback"; Status = "FAILED" }
+        $testResults += @{ Test = "ClientAddress Synthetic"; Status = "FAILED" }
     }
     
     # Summary
