@@ -315,13 +315,13 @@ try {
         $logPath = "./logs/access.log"
         if (Test-Path $logPath) {
             $logContent = Get-Content $logPath -Raw
-            # Look for JSON format with our test data and X-Real-IP header
-            if ($logContent -match $uniqueId -and $logContent -match "X-Real-IP" -and $logContent -match $testIP) {
-                Write-Step "✓ Test 9 PASSED: Access log contains our test request and X-Real-IP header" "Success"
+            # Look for JSON format with our test data, X-Real-IP header, and X-Is-Trusted header
+            if ($logContent -match $uniqueId -and $logContent -match "X-Real-IP" -and $logContent -match $testIP -and $logContent -match "X-Is-Trusted") {
+                Write-Step "✓ Test 9 PASSED: Access log contains our test request, X-Real-IP and X-Is-Trusted headers" "Success"
                 $testResults += @{ Test = "Access Log"; Status = "PASSED" }
             } else {
                 Write-Step "✗ Test 9 FAILED: Access log doesn't contain expected data" "Error"
-                Write-Host "Looking for: uniqueId=$uniqueId, testIP=$testIP, X-Real-IP header" -ForegroundColor Yellow
+                Write-Host "Looking for: uniqueId=$uniqueId, testIP=$testIP, X-Real-IP header, X-Is-Trusted header" -ForegroundColor Yellow
                 Write-Host "Log content preview: $($logContent.Substring([Math]::Max(0, $logContent.Length - 1000)))" -ForegroundColor Yellow
                 $testResults += @{ Test = "Access Log"; Status = "FAILED" }
             }

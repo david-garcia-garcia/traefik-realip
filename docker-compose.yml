@@ -18,6 +18,7 @@ services:
       - --accesslog.fields.headers.names.X-Client-IP=keep
       - --accesslog.fields.headers.names.CF-Connecting-IP=keep
       - --accesslog.fields.headers.names.X-Forwarded-For=keep
+      - --accesslog.fields.headers.names.X-Is-Trusted=keep
     ports:
       - "8080:8080"  # Traefik dashboard
       - "80:80"      # HTTP
@@ -46,6 +47,8 @@ services:
       - "traefik.http.middlewares.realip.plugin.realip.processHeaders[2].headerName=X-Forwarded-For"
       - "traefik.http.middlewares.realip.plugin.realip.processHeaders[2].depth=-1"
       - "traefik.http.middlewares.realip.plugin.realip.forceOverwrite=true"
+      - "traefik.http.middlewares.realip.plugin.realip.trustAll=true"
+      - "traefik.http.middlewares.realip.plugin.realip.trustedHeader=X-Is-Trusted"
     networks:
       - traefik-net
 
