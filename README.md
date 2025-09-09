@@ -73,8 +73,7 @@ go test -v
 # Run integration tests (PowerShell)
 ./Test-Integration.ps1
 
-# Run integration tests (Bash)
-chmod +x Test-Integration.ps1
+# Run integration tests (Cross-platform)
 pwsh ./Test-Integration.ps1
 ```
 
