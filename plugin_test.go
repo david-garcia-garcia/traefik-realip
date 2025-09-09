@@ -196,6 +196,7 @@ func TestServeHTTP(t *testing.T) {
 			Enabled:        true,
 			HeaderName:     "X-Real-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
+			TrustAll:       true,
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
@@ -224,6 +225,7 @@ func TestServeHTTP(t *testing.T) {
 			Enabled:        true,
 			HeaderName:     "X-Real-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
+			TrustAll:       true,
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
@@ -248,6 +250,7 @@ func TestServeHTTP(t *testing.T) {
 			Enabled:        true,
 			HeaderName:     "X-Real-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
+			TrustAll:       true,
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
@@ -272,6 +275,7 @@ func TestServeHTTP(t *testing.T) {
 			Enabled:        true,
 			HeaderName:     "X-Real-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
+			TrustAll:       true,
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
@@ -296,6 +300,7 @@ func TestServeHTTP(t *testing.T) {
 			Enabled:        true,
 			HeaderName:     "X-Real-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
+			TrustAll:       true,
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
@@ -397,6 +402,7 @@ func TestServeHTTP(t *testing.T) {
 			Enabled:        true,
 			HeaderName:     "X-Real-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
+			TrustAll:       true,
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
@@ -421,6 +427,7 @@ func TestServeHTTP(t *testing.T) {
 			Enabled:        true,
 			HeaderName:     "X-Real-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
+			TrustAll:       true,
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
@@ -445,6 +452,7 @@ func TestServeHTTP(t *testing.T) {
 			Enabled:        true,
 			HeaderName:     "X-Client-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
+			TrustAll:       true,
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
@@ -475,6 +483,7 @@ func TestServeHTTP(t *testing.T) {
 			Enabled:        true,
 			HeaderName:     "X-Real-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
+			TrustAll:       true,
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
@@ -935,8 +944,9 @@ func TestServeHTTP(t *testing.T) {
 			HeaderName:     "X-Real-IP",
 			ProcessHeaders: []HeaderConfig{{HeaderName: "X-Forwarded-For", Depth: -1}},
 			ForceOverwrite: true,
+			TrustAll:       true,       // Trust all when no specific IPs configured
 			TrustedIPs:     []string{}, // No trusted IPs configured
-			TrustedHeader:  "",
+			TrustedHeader:  "",         // No trust header
 		}
 
 		plugin, err := New(context.TODO(), &noopHandler{}, cfg, pluginName)
