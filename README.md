@@ -13,12 +13,14 @@ A Traefik plugin that extracts the real client IP address from proxy headers and
 - **Flexible header configuration**: Define headers with custom depth settings for precise control
 - **Synthetic headers**: Special `clientAddress` header provides direct access to `request.RemoteAddr`
 - **Anti-spoofing protection**: `forceOverwrite` option prevents header injection attacks
+- **Trust-based security**: Only process headers from trusted proxy sources using fast radix tree lookups
+- **Trust indication**: Optional header to indicate if the request source was trusted
 - **Smart IP extraction**: Handles multiple IPs, port numbers, and IPv6 addresses
 - **Header priority**: Processes headers in configured order with fallback support
 - **Port stripping**: Automatically removes port numbers from IP addresses
 - **IPv6 support**: Full support for IPv6 addresses including bracketed notation with ports
 - **Enable/disable control**: Easy on/off switch for the plugin functionality
-- **Robust validation**: Validates IP addresses and handles malformed input gracefully
+- **High performance**: O(log k) IP lookups using radix trees for trusted IP checking
 - **Access log integration**: Extracted IPs appear in Traefik access logs
 
 ## 📥 Installation
@@ -97,6 +99,9 @@ http:
             - headerName: "clientAddress"  # Synthetic header for request.RemoteAddr
               depth: -1
           forceOverwrite: true             # Always set header (prevents spoofing)
+          trustAll: true                   # Trust all sources (default)
+          trustedIPs: []                   # CIDR blocks of trusted proxies
+          trustedHeader: ""                # Optional trust indication header
 ```
 
 ### Configuration Options
@@ -107,6 +112,9 @@ http:
 | `headerName` | string | `"X-Real-IP"` | Name of the header to populate with the extracted IP |
 | `processHeaders` | array of objects | See below | List of headers to process with depth configuration |
 | `forceOverwrite` | boolean | `true` | Always set the header, even if empty (prevents header spoofing) |
+| `trustAll` | boolean | `true` | Trust all sources (if false, trustedIPs must be configured) |
+| `trustedIPs` | array of strings | `[]` | CIDR blocks of trusted proxy IPs (required if trustAll is false) |
+| `trustedHeader` | string | `""` | Header name to indicate trust status (e.g., "X-Is-Trusted") |
 
 #### ProcessHeaders Configuration
 
@@ -185,8 +193,11 @@ The plugin processes requests in the following order:
    - `depth: 1` = Second from right, etc.
    - If depth is out of bounds, skip to next header
 5. **Set the result**: Populates the `headerName` header with the selected IP
-6. **Force overwrite**: If `forceOverwrite` is true, always sets the header (even if empty) to prevent spoofing
-7. **Forward the request**: Passes the modified request to the next handler
+6. **Check source trust**: If `trustAll` is false, verify the request source IP against `trustedIPs`
+7. **Set trust header**: If `trustedHeader` is configured, add "yes"/"no" to indicate trust status
+8. **Apply trust filtering**: Untrusted sources can only use synthetic headers (like `clientAddress`)
+9. **Force overwrite**: If `forceOverwrite` is true, always sets the header (even if empty) to prevent spoofing
+10. **Forward the request**: Passes the modified request to the next handler
 
 ### Synthetic Headers
 
@@ -194,6 +205,18 @@ The plugin processes requests in the following order:
 - Provides access to the actual network connection's remote address
 - Useful as a fallback when no proxy headers are available
 - Automatically handles port stripping like other headers
+- **Always processed regardless of trust status** (cannot be spoofed)
+
+### Trust-Based Security
+
+When `trustAll` is set to `false`, the plugin implements trust-based header processing:
+
+- **Trusted sources**: Process all configured headers normally
+- **Untrusted sources**: Only process synthetic headers (like `clientAddress`)
+- **Trust verification**: Uses fast radix tree lookups to check if `request.RemoteAddr` is in `trustedIPs`
+- **Trust indication**: Optional `trustedHeader` adds "yes"/"no" to indicate trust status
+
+This prevents header spoofing attacks where malicious clients send fake proxy headers.
 
 ### Header Processing Examples
 
@@ -279,6 +302,33 @@ Incoming Request:
   (no X-Forwarded-For header)
 
 Result: X-Real-IP: ""  (spoofed header overwritten with empty value)
+```
+
+#### Trust-Based Security Example
+```yaml
+Configuration:
+  trustAll: false
+  trustedIPs: ["192.168.0.0/16", "10.0.0.0/8"]
+  trustedHeader: "X-Is-Trusted"
+  processHeaders:
+    - headerName: "X-Forwarded-For"
+      depth: -1
+    - headerName: "clientAddress"
+      depth: -1
+
+Trusted Request (from 192.168.1.1):
+  X-Forwarded-For: "203.0.113.1, 198.51.100.1"
+  
+Result: 
+  X-Real-IP: "203.0.113.1"  (processes X-Forwarded-For)
+  X-Is-Trusted: "yes"
+
+Untrusted Request (from 8.8.8.8):
+  X-Forwarded-For: "fake-ip, spoofed-ip"
+  
+Result:
+  X-Real-IP: "8.8.8.8"      (ignores headers, uses RemoteAddr)
+  X-Is-Trusted: "no"
 ```
 
 ## 📋 Use Cases
@@ -383,6 +433,57 @@ http:
             - headerName: "clientAddress"  # Synthetic: maps to request.RemoteAddr
               depth: -1
           forceOverwrite: true
+```
+
+### Trust-Based Security (Recommended for Production)
+```yaml
+http:
+  middlewares:
+    realip:
+      plugin:
+        realip:
+          enabled: true
+          headerName: "X-Real-IP"
+          processHeaders:
+            - headerName: "X-Forwarded-For"
+              depth: -1
+            - headerName: "clientAddress"  # Fallback for untrusted sources
+              depth: -1
+          forceOverwrite: true
+          trustAll: false                  # Enable trust checking
+          trustedIPs:                      # Only trust these proxy sources
+            - "127.0.0.0/8"                # IPv4 loopback
+            - "10.0.0.0/8"                 # RFC1918 private
+            - "172.16.0.0/12"              # RFC1918 private
+            - "192.168.0.0/16"             # RFC1918 private
+            - "::1/128"                    # IPv6 loopback
+            - "fc00::/7"                   # IPv6 unique local
+            - "fe80::/10"                  # IPv6 link-local
+          trustedHeader: "X-Is-Trusted"   # Add trust indication header
+```
+
+### Behind Cloudflare with Trust Checking
+```yaml
+http:
+  middlewares:
+    realip:
+      plugin:
+        realip:
+          enabled: true
+          headerName: "X-Real-IP"
+          processHeaders:
+            - headerName: "CF-Connecting-IP"
+              depth: -1
+            - headerName: "clientAddress"
+              depth: -1
+          forceOverwrite: true
+          trustAll: false
+          trustedIPs:
+            - "173.245.48.0/20"          # Cloudflare IP ranges
+            - "103.21.244.0/22"          # (example ranges)
+            - "103.22.200.0/22"
+            - "103.31.4.0/22"
+          trustedHeader: "X-Is-Trusted"
 ```
 
 ### Access Logging Configuration

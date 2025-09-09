@@ -23,6 +23,11 @@ type Config struct {
 	HeaderName     string         `json:"headerName,omitempty"`     // Header name where IP will be populated
 	ProcessHeaders []HeaderConfig `json:"processHeaders,omitempty"` // List of headers to process with depth configuration
 	ForceOverwrite bool           `json:"forceOverwrite,omitempty"` // Always set the header, even if empty (to prevent header spoofing)
+
+	// Trust configuration
+	TrustAll      bool     `json:"trustAll,omitempty"`      // Trust all sources (default: false)
+	TrustedIPs    []string `json:"trustedIPs,omitempty"`    // CIDR blocks of trusted proxy IPs (required if trustAll is false)
+	TrustedHeader string   `json:"trustedHeader,omitempty"` // Header name for trust indication (e.g., "X-Is-Trusted")
 }
 
 // CreateConfig creates the default plugin configuration.
@@ -37,6 +42,9 @@ func CreateConfig() *Config {
 			{HeaderName: "clientAddress", Depth: -1},
 		},
 		ForceOverwrite: true,
+		TrustAll:       true,       // Default: trust all (backward compatibility)
+		TrustedIPs:     []string{}, // Empty by default
+		TrustedHeader:  "",         // Empty by default (no trust header)
 	}
 }
 
@@ -48,6 +56,9 @@ type Plugin struct {
 	headerName     string
 	processHeaders []HeaderConfig
 	forceOverwrite bool
+	trustAll       bool
+	trustedIPs     *IpLookupHelper
+	trustedHeader  string
 }
 
 // New creates a new plugin instance.
@@ -69,6 +80,21 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 		return nil, fmt.Errorf("%s: processHeaders cannot be empty when plugin is enabled", name)
 	}
 
+	// Validate trust configuration - if trustAll is false, trustedIPs must be provided
+	if cfg.Enabled && !cfg.TrustAll && len(cfg.TrustedIPs) == 0 {
+		return nil, fmt.Errorf("%s: trustedIPs cannot be empty when trustAll is false", name)
+	}
+
+	// Initialize trusted IPs lookup helper
+	var trustedIPs *IpLookupHelper
+	if !cfg.TrustAll && len(cfg.TrustedIPs) > 0 {
+		var err error
+		trustedIPs, err = NewIpLookupHelper(cfg.TrustedIPs)
+		if err != nil {
+			return nil, fmt.Errorf("%s: failed to parse trusted IPs: %w", name, err)
+		}
+	}
+
 	plugin := &Plugin{
 		next:           next,
 		name:           name,
@@ -76,6 +102,9 @@ func New(ctx context.Context, next http.Handler, cfg *Config, name string) (http
 		headerName:     cfg.HeaderName,
 		processHeaders: cfg.ProcessHeaders,
 		forceOverwrite: cfg.ForceOverwrite,
+		trustAll:       cfg.TrustAll,
+		trustedIPs:     trustedIPs,
+		trustedHeader:  cfg.TrustedHeader,
 	}
 
 	return plugin, nil
@@ -88,21 +117,67 @@ func (p *Plugin) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Check if the request comes from a trusted source
+	isTrusted := p.isRequestTrusted(req)
+
+	// Set trust header if configured
+	if p.trustedHeader != "" {
+		if isTrusted {
+			req.Header.Set(p.trustedHeader, "yes")
+		} else {
+			req.Header.Set(p.trustedHeader, "no")
+		}
+	}
+
 	// Extract the first valid IP address from the configured headers
-	realIP := p.extractRealIP(req)
+	realIP := p.extractRealIP(req, isTrusted)
 
 	// Always set the header if forceOverwrite is true, even if empty
 	// This prevents clients from spoofing the header
-	if (p.forceOverwrite || realIP != "") && p.headerName != "" {
+	if p.forceOverwrite || realIP != "" {
 		req.Header.Set(p.headerName, realIP)
 	}
 
 	p.next.ServeHTTP(rw, req)
 }
 
+// isRequestTrusted checks if the request comes from a trusted source based on RemoteAddr
+func (p *Plugin) isRequestTrusted(req *http.Request) bool {
+	// If trustAll is enabled, trust all requests
+	if p.trustAll {
+		return true
+	}
+
+	// If no trusted IPs configured (and trustAll is false), don't trust any requests
+	if p.trustedIPs == nil {
+		return false
+	}
+
+	// Extract IP from RemoteAddr
+	clientIP := p.cleanIPAddress(req.RemoteAddr)
+	if clientIP == "" {
+		return false
+	}
+
+	// Parse the IP address
+	ip := net.ParseIP(clientIP)
+	if ip == nil {
+		return false
+	}
+
+	// Check if IP is in trusted ranges
+	isTrusted, _, err := p.trustedIPs.IsContained(ip)
+	if err != nil {
+		return false
+	}
+
+	return isTrusted
+}
+
 // extractRealIP processes the configured headers in order and returns the first valid IP address found.
 // Special synthetic header "clientAddress" maps to req.RemoteAddr for direct access to the connection's remote address.
-func (p *Plugin) extractRealIP(req *http.Request) string {
+// If isTrusted is false, only the clientAddress synthetic header will be processed.
+func (p *Plugin) extractRealIP(req *http.Request, isTrusted bool) string {
 	for _, headerConfig := range p.processHeaders {
 		var headerValue string
 
@@ -110,6 +185,10 @@ func (p *Plugin) extractRealIP(req *http.Request) string {
 		if headerConfig.HeaderName == "clientAddress" {
 			headerValue = req.RemoteAddr
 		} else {
+			// If request is not trusted and trustedIPs is configured, skip non-synthetic headers
+			if !isTrusted && p.trustedIPs != nil {
+				continue
+			}
 			headerValue = req.Header.Get(headerConfig.HeaderName)
 		}
 
